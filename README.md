@@ -1,2 +1,2 @@
 # SuperFood
-A project for a friend's pizzeria.
+A test project to learn about new technologies.
