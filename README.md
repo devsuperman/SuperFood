@@ -7,11 +7,34 @@ A multi-tenant restaurant management SaaS. See:
 
 ## Running locally
 
-Prerequisites: .NET 10 SDK, a PostgreSQL 16 instance (`docker compose up -d` starts one).
+### Option A — Docker Compose (everything, one command)
+
+Prerequisites: Docker.
+
+```bash
+docker compose up --build
+```
+
+This builds and starts three containers: PostgreSQL, the API (applies EF Core
+migrations and seeds the platform admin automatically), and the Blazor
+client served by nginx.
+
+- Client: http://localhost:8080
+- API: http://localhost:5080
+- Postgres: localhost:5432
+
+Sign in at http://localhost:8080/login with `admin@superfood.dev` /
+`Passw0rd!Admin` (the seeded platform admin) to create your first restaurant.
+Override those, or the JWT signing key, by copying [`.env.example`](.env.example)
+to `.env` before starting — see that file for the variables.
+
+### Option B — .NET SDK directly (faster edit/run loop while developing)
+
+Prerequisites: .NET 10 SDK, a PostgreSQL 16 instance (`docker compose up -d postgres` starts just that one).
 
 ```bash
 # 1. Start Postgres
-docker compose up -d
+docker compose up -d postgres
 
 # 2. Configure secrets (once)
 cd src/SuperFood.Api

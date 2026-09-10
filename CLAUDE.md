@@ -87,23 +87,38 @@ docs/
 
 ## Local development
 
+Two ways to run the whole thing — see `README.md` for the full writeup:
+
+- **`docker compose up --build`** — builds and runs Postgres + API + client
+  (nginx-served static Blazor build) together. `src/SuperFood.Api/Dockerfile`
+  and `src/SuperFood.Client/Dockerfile` are multi-stage builds with the repo
+  root as build context (both projects reference siblings under `src/`).
+  The client image bakes `API_BASE_URL` into `wwwroot/appsettings.json` at
+  **container start** (`docker/generate-appsettings.sh`, via `envsubst`), not
+  at image build time, so the same image works against a different API URL
+  without rebuilding.
+- **`dotnet run` directly** (faster edit/run loop) — needs a Postgres
+  instance and `dotnet user-secrets` configured once:
+
+  ```bash
+  # Postgres (either works)
+  docker compose up -d postgres
+  # or, in this sandbox where the Docker daemon isn't available:
+  pg_ctlcluster 16 main start   # then create the `superfood` DB/user once if missing
+
+  # One-time secrets (from src/SuperFood.Api)
+  cd src/SuperFood.Api
+  dotnet user-secrets set "Jwt:SigningKey" "<long random string>"
+  dotnet user-secrets set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=superfood;Username=postgres;Password=postgres"
+  dotnet user-secrets set "PlatformAdmin:Email" "admin@superfood.dev"
+  dotnet user-secrets set "PlatformAdmin:Password" "<strong password>"
+
+  # Run (migrations + platform_admin seeding happen automatically in Development)
+  dotnet run --project src/SuperFood.Api        # http://localhost:5080 in this sandbox
+  dotnet run --project src/SuperFood.Client     # separate terminal
+  ```
+
 ```bash
-# Postgres (either works)
-docker compose up -d
-# or, in this sandbox where Docker isn't available:
-pg_ctlcluster 16 main start   # then create the `superfood` DB/user once if missing
-
-# One-time secrets (from src/SuperFood.Api)
-cd src/SuperFood.Api
-dotnet user-secrets set "Jwt:SigningKey" "<long random string>"
-dotnet user-secrets set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=superfood;Username=postgres;Password=postgres"
-dotnet user-secrets set "PlatformAdmin:Email" "admin@superfood.dev"
-dotnet user-secrets set "PlatformAdmin:Password" "<strong password>"
-
-# Run (migrations + platform_admin seeding happen automatically in Development)
-dotnet run --project src/SuperFood.Api        # http://localhost:5080 in this sandbox
-dotnet run --project src/SuperFood.Client     # separate terminal
-
 # Tests
 dotnet test tests/SuperFood.UnitTests
 dotnet test tests/SuperFood.IntegrationTests  # needs Docker — not runnable in this sandbox
@@ -111,10 +126,17 @@ dotnet test tests/SuperFood.IntegrationTests  # needs Docker — not runnable in
 
 ## Sandbox gotchas (this environment specifically)
 
-- No Docker daemon here — `docker compose` and the integration tests can't
-  actually run; use `pg_ctlcluster` for a local Postgres instead, and treat
-  `SuperFoodApiFactory`/Testcontainers-based tests as "correct if it fails
-  only on 'can't reach Docker daemon'."
+- No Docker daemon here — `docker compose up`/`build` and the integration
+  tests can't actually run; use `pg_ctlcluster` for a local Postgres instead,
+  and treat `SuperFoodApiFactory`/Testcontainers-based tests as "correct if
+  it fails only on 'can't reach Docker daemon'." The compose file and both
+  Dockerfiles were validated as far as possible without a daemon —
+  `docker compose config` (parses/resolves env interpolation without
+  needing the daemon) and a local `dotnet publish` dry run confirming the
+  output paths each `COPY --from=build` expects — but never actually built
+  or run end-to-end here. If you change either Dockerfile or the compose
+  file, re-run those two checks at minimum, and get a real
+  `docker compose up --build` run if you ever have a working daemon.
 - `dotnet-ef` isn't on `PATH` by default after `dotnet tool install --global
   dotnet-ef`: run `export PATH="$PATH:/root/.dotnet/tools"` first.
 - Background `dotnet run` processes die silently between tool calls unless

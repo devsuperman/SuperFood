@@ -319,13 +319,36 @@ CreateProduct.cs
 
 ## 11. Local Development Environment
 
-- **`docker-compose.yml`** at repo root with a single `postgres` service
-  (official `postgres` image, a fixed local port, a named volume for
-  persistence across restarts).
-- **`dotnet user-secrets`** for local connection strings/JWT signing key —
-  never committed to the repo.
-- On `Development` startup, `SuperFood.Api` applies pending EF Core
-  migrations automatically against the Docker Compose Postgres instance.
+Two supported ways to run the stack locally (ADR-12):
+
+- **Full Docker Compose** (`docker compose up --build`) — three services:
+  `postgres` (official image, named volume), `api` (built from
+  `src/SuperFood.Api/Dockerfile`, a multi-stage SDK-build → `aspnet` runtime
+  image), and `client` (built from `src/SuperFood.Client/Dockerfile`, a
+  multi-stage SDK-build → `nginx:alpine` image serving the static
+  `wwwroot` output). Both Dockerfiles use the **repo root** as build
+  context, since `SuperFood.Api` and `SuperFood.Client` both reference
+  sibling projects under `src/`.
+  - Secrets (`Jwt:SigningKey`, `PlatformAdmin:Email`/`Password`) are passed
+    as environment variables in `docker-compose.yml`, with local-dev-only
+    defaults — overridable via a `.env` file (see `.env.example`) rather
+    than `dotnet user-secrets`, since a container has no access to the
+    host's user-secrets store.
+  - The client container doesn't know the API's URL at image-build time —
+    it's supplied as the `API_BASE_URL` environment variable and baked into
+    `wwwroot/appsettings.json` at **container start** via `envsubst`
+    (`src/SuperFood.Client/docker/generate-appsettings.sh`, run by nginx's
+    own `/docker-entrypoint.d/` mechanism), so the same built image works
+    against any API URL without a rebuild.
+  - `ASPNETCORE_ENVIRONMENT=Development` is set for the `api` service so
+    the existing Development-only migration + platform_admin seeding logic
+    in `Program.cs` runs against the compose Postgres automatically — no
+    separate migration step for local use.
+- **`dotnet run` directly against `docker compose up -d postgres`** — the
+  original flow, still supported for a faster edit/run loop:
+  **`dotnet user-secrets`** for local connection strings/JWT signing key —
+  never committed to the repo. On `Development` startup, `SuperFood.Api`
+  applies pending EF Core migrations automatically.
 
 ---
 
@@ -360,6 +383,7 @@ Publishing/deployment steps are `(future)` — not defined yet.
 | ADR-09 | ~~Modular client: one Razor Class Library per feature area, lazy-loaded~~ **Superseded by ADR-11.** | Single monolithic Blazor WASM project | Keeps initial download small as features grow (a waiter never downloads the Platform Admin module); mirrors the backend's Vertical Slice feature boundaries so ownership of a feature maps 1:1 on both sides of the stack. |
 | ADR-10 | ~~Extract `SuperFood.Client.Shared` (auth plumbing, `PublicLayout`) below both host and modules~~ **Superseded by ADR-11.** | Put auth types directly in `SuperFood.Client` | A module referencing the host to reach `ITokenAccessor`/`PublicLayout` would create a project-reference cycle (the host already references every module). A small shared library sitting below both sides resolves it without weakening the "modules don't reference each other" rule. |
 | ADR-11 | Single `SuperFood.Client` project with `Features/<Area>` folders, no lazy loading | Keep the ADR-09/ADR-10 modular split (one RCL per feature + a Shared project + lazy loading) | In practice the split added a project-reference-cycle workaround (ADR-10), an `ITokenAccessor` indirection layer, and lazy-loading wiring (`OnNavigateAsync`, `BlazorWebAssemblyLazyLoad` items) — real ceremony for an app whose staff-side pages are a handful of KB of C#. The download-size benefit ADR-09 argued for doesn't pay for that at this size; feature folders keep the same VSA-mirroring benefit without the machinery. Revisit if the client's initial payload actually becomes a problem. |
+| ADR-12 | Full `docker compose up` (Postgres + API + nginx-served client), env vars for secrets, `envsubst`-templated client config baked in at container start | Docker Compose for Postgres only (previous state); a single combined Dockerfile; baking `API_BASE_URL` in at image-build time | A one-command local environment matters more than a minimal compose file once there are two runnable services beyond the database. Runtime (not build-time) API-URL templating means one client image works in any environment, matching how the equivalent `dotnet run` flow already lets the API URL vary without a rebuild. Env vars (not `dotnet user-secrets`) carry secrets into containers because user-secrets live in the host user profile, which containers don't see. |
 
 ---
 

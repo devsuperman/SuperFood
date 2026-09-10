@@ -11,6 +11,48 @@ services:
       - "5432:5432"
     volumes:
       - superfood-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: src/SuperFood.Api/Dockerfile
+    container_name: superfood-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      # Development-only: Program.cs applies EF Core migrations and seeds
+      # the platform_admin automatically on startup in this environment.
+      ConnectionStrings__Default: "Host=postgres;Port=5432;Database=superfood;Username=postgres;Password=postgres"
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-local-docker-dev-signing-key-do-not-use-in-production}
+      PlatformAdmin__Email: ${PLATFORM_ADMIN_EMAIL:-admin@superfood.dev}
+      PlatformAdmin__Password: ${PLATFORM_ADMIN_PASSWORD:-Passw0rd!Admin}
+      # Both must point at how the *browser* reaches the client container
+      # (its published host port), not the internal compose network name.
+      Client__PublicBaseUrl: http://localhost:8080
+    ports:
+      - "5080:8080"
+
+  client:
+    build:
+      context: .
+      dockerfile: src/SuperFood.Client/Dockerfile
+    container_name: superfood-client
+    restart: unless-stopped
+    depends_on:
+      - api
+    environment:
+      # How the *browser* reaches the api container's published host port.
+      API_BASE_URL: http://localhost:5080
+    ports:
+      - "8080:80"
 
 volumes:
   superfood-postgres-data:
