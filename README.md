@@ -30,7 +30,7 @@ to `.env` before starting — see that file for the variables.
 
 ### Option B — .NET SDK directly (faster edit/run loop while developing)
 
-Prerequisites: .NET 10 SDK, a PostgreSQL 16 instance (`docker compose up -d postgres` starts just that one).
+Prerequisites: .NET 10 SDK, a PostgreSQL 18 instance (`docker compose up -d postgres` starts just that one).
 
 ```bash
 # 1. Start Postgres
