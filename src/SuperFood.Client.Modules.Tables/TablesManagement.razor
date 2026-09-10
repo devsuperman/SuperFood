@@ -1,0 +1,89 @@
+@page "/admin/tables"
+@attribute [Authorize(Policy = "tables:manage")]
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+@using SuperFood.Contracts.Tables
+
+<MudText Typo="Typo.h4" GutterBottom="true">Tables</MudText>
+
+<MudPaper Class="pa-4 mb-4" Outlined="true">
+    <MudGrid>
+        <MudItem xs="6" md="3"><MudTextField T="string" Label="Identifier (e.g. T1)" @bind-Value="_newIdentifier" /></MudItem>
+        <MudItem xs="6" md="3"><MudNumericField T="int" Label="Capacity" @bind-Value="_newCapacity" /></MudItem>
+        <MudItem xs="12" md="3"><MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateTableAsync">Add table</MudButton></MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudTable Items="_tables" Hover="true">
+    <HeaderContent>
+        <MudTh>Identifier</MudTh>
+        <MudTh>Capacity</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Order link (QR target)</MudTh>
+        <MudTh>Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>@context.Identifier</MudTd>
+        <MudTd>@context.Capacity</MudTd>
+        <MudTd>
+            <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Status)">@context.Status</MudChip>
+        </MudTd>
+        <MudTd>
+            <MudLink Href="@context.QrCodeUrl" Target="_blank">@context.QrCodeUrl</MudLink>
+        </MudTd>
+        <MudTd>
+            @if (context.Status == "Free")
+            {
+                <MudButton Size="Size.Small" OnClick="@(() => OpenSessionAsync(context.Id))">Open (seat guests)</MudButton>
+            }
+            else
+            {
+                <MudButton Size="Size.Small" Href="@($"/admin/orders/table/{context.Id}")">View bill</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+</MudTable>
+
+@code {
+    private List<TableResponse> _tables = [];
+    private string _newIdentifier = "";
+    private int _newCapacity = 2;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _tables = await Http.GetFromJsonAsync<List<TableResponse>>("api/tables") ?? [];
+    }
+
+    private async Task CreateTableAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newIdentifier))
+        {
+            return;
+        }
+
+        await Http.PostAsJsonAsync("api/tables", new CreateTableRequest(_newIdentifier, _newCapacity));
+        _newIdentifier = "";
+        _newCapacity = 2;
+        await LoadAsync();
+    }
+
+    private async Task OpenSessionAsync(Guid tableId)
+    {
+        var response = await Http.PostAsync($"api/tables/{tableId}/sessions", null);
+        if (!response.IsSuccessStatusCode)
+        {
+            Snackbar.Add("Could not open table.", Severity.Error);
+        }
+
+        await LoadAsync();
+    }
+
+    private static Color StatusColor(string status) => status switch
+    {
+        "Free" => Color.Success,
+        "Occupied" => Color.Warning,
+        _ => Color.Default
+    };
+}

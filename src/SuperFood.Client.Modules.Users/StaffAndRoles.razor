@@ -1,0 +1,196 @@
+@page "/admin/users"
+@attribute [Authorize(Policy = "users:manage")]
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+@using SuperFood.Contracts.Users
+
+<MudText Typo="Typo.h4" GutterBottom="true">Staff &amp; Roles</MudText>
+
+<MudTabs Elevation="1" Rounded="true">
+    <MudTabPanel Text="Staff">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="my-4" OnClick="@(() => _showInvite = true)">
+            Invite staff
+        </MudButton>
+
+        @if (_showInvite)
+        {
+            <MudPaper Class="pa-4 mb-4" Outlined="true">
+                <MudGrid>
+                    <MudItem xs="12" md="4"><MudTextField T="string" Label="Full name" @bind-Value="_invite.FullName" /></MudItem>
+                    <MudItem xs="12" md="4"><MudTextField T="string" Label="Email" @bind-Value="_invite.Email" /></MudItem>
+                    <MudItem xs="12" md="4">
+                        <MudSelect T="Guid" Label="Role" @bind-Value="_invite.RoleId">
+                            @foreach (var role in _roles)
+                            {
+                                <MudSelectItem Value="@role.Id">@role.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                </MudGrid>
+                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" OnClick="InviteAsync">Send invite</MudButton>
+                <MudButton Class="mt-3 ml-2" OnClick="@(() => _showInvite = false)">Cancel</MudButton>
+            </MudPaper>
+        }
+
+        @if (_invited is not null)
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-4">
+                Invited. Temporary password for @_invited.Email: <strong>@_invited.TemporaryPassword</strong>
+            </MudAlert>
+        }
+
+        <MudTable Items="_staff" Hover="true">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Email</MudTh>
+                <MudTh>Role</MudTh>
+                <MudTh>Active</MudTh>
+                <MudTh>Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.FullName</MudTd>
+                <MudTd>@context.Email</MudTd>
+                <MudTd>
+                    <MudSelect T="Guid?" Value="context.RoleId" ValueChanged="@(id => AssignRoleAsync(context.Id, id))" Dense="true">
+                        @foreach (var role in _roles)
+                        {
+                            <MudSelectItem T="Guid?" Value="@role.Id">@role.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudTd>
+                <MudTd>@(context.IsActive ? "Yes" : "No")</MudTd>
+                <MudTd>
+                    @if (context.IsActive)
+                    {
+                        <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => DeactivateAsync(context.Id))">Deactivate</MudButton>
+                    }
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudTabPanel>
+
+    <MudTabPanel Text="Roles">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="my-4" OnClick="@(() => _showCreateRole = true)">
+            New role
+        </MudButton>
+
+        @if (_showCreateRole)
+        {
+            <MudPaper Class="pa-4 mb-4" Outlined="true">
+                <MudTextField T="string" Label="Role name" @bind-Value="_newRole.Name" />
+                <MudText Typo="Typo.subtitle2" Class="mt-3">Permissions</MudText>
+                @foreach (var permission in AvailablePermissions.All)
+                {
+                    <MudCheckBox T="bool" Label="@permission" Value="_newRole.Permissions.Contains(permission)"
+                        ValueChanged="@(v => ToggleNewRolePermission(permission, v))" />
+                }
+                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateRoleAsync">Create role</MudButton>
+                <MudButton Class="mt-3 ml-2" OnClick="@(() => _showCreateRole = false)">Cancel</MudButton>
+            </MudPaper>
+        }
+
+        <MudTable Items="_roles" Hover="true">
+            <HeaderContent>
+                <MudTh>Name</MudTh>
+                <MudTh>Permissions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd>@context.Name</MudTd>
+                <MudTd>@string.Join(", ", context.Permissions)</MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private List<StaffSummaryResponse> _staff = [];
+    private List<RoleResponse> _roles = [];
+    private bool _showInvite;
+    private bool _showCreateRole;
+    private InviteFormModel _invite = new();
+    private InviteStaffResponse? _invited;
+    private NewRoleFormModel _newRole = new();
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _staff = await Http.GetFromJsonAsync<List<StaffSummaryResponse>>("api/users/staff") ?? [];
+        _roles = await Http.GetFromJsonAsync<List<RoleResponse>>("api/users/roles") ?? [];
+    }
+
+    private async Task InviteAsync()
+    {
+        var request = new InviteStaffRequest(_invite.FullName, _invite.Email, _invite.RoleId);
+        var response = await Http.PostAsJsonAsync("api/users/staff", request);
+        if (response.IsSuccessStatusCode)
+        {
+            _invited = await response.Content.ReadFromJsonAsync<InviteStaffResponse>();
+            _showInvite = false;
+            _invite = new();
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add("Could not invite staff member.", Severity.Error);
+        }
+    }
+
+    private async Task AssignRoleAsync(Guid userId, Guid? roleId)
+    {
+        if (roleId is null)
+        {
+            return;
+        }
+
+        await Http.PostAsJsonAsync($"api/users/staff/{userId}/role", new AssignRoleRequest(roleId.Value));
+        await LoadAsync();
+    }
+
+    private async Task DeactivateAsync(Guid userId)
+    {
+        await Http.PostAsync($"api/users/staff/{userId}/deactivate", null);
+        await LoadAsync();
+    }
+
+    private void ToggleNewRolePermission(string permission, bool selected)
+    {
+        if (selected && !_newRole.Permissions.Contains(permission))
+        {
+            _newRole.Permissions.Add(permission);
+        }
+        else
+        {
+            _newRole.Permissions.Remove(permission);
+        }
+    }
+
+    private async Task CreateRoleAsync()
+    {
+        var request = new CreateRoleRequest(_newRole.Name, [.. _newRole.Permissions]);
+        var response = await Http.PostAsJsonAsync("api/users/roles", request);
+        if (response.IsSuccessStatusCode)
+        {
+            _showCreateRole = false;
+            _newRole = new();
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add("Could not create role.", Severity.Error);
+        }
+    }
+
+    private class InviteFormModel
+    {
+        public string FullName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public Guid RoleId { get; set; }
+    }
+
+    private class NewRoleFormModel
+    {
+        public string Name { get; set; } = "";
+        public List<string> Permissions { get; set; } = [];
+    }
+}

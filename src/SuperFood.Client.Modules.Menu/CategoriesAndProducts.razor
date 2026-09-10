@@ -1,0 +1,232 @@
+@page "/admin/menu"
+@attribute [Authorize(Policy = "menu:manage")]
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+@using SuperFood.Contracts.Menu
+
+<MudText Typo="Typo.h4" GutterBottom="true">Menu</MudText>
+
+<MudGrid>
+    <MudItem xs="12" md="4">
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudText Typo="Typo.h6" GutterBottom="true">Categories</MudText>
+            <MudTextField T="string" Label="New category name" @bind-Value="_newCategoryName" Immediate="true" />
+            <MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateCategoryAsync">Add</MudButton>
+
+            <MudList T="CategoryResponse" Class="mt-4">
+                @foreach (var category in _categories)
+                {
+                    <MudListItem T="CategoryResponse" OnClick="@(() => SelectCategoryAsync(category))"
+                        Class="@(category.Id == _selectedCategory?.Id ? "mud-selected-item" : "")">
+                        <div class="d-flex align-center justify-space-between" style="width:100%">
+                            <MudText>@category.Name</MudText>
+                            <div>
+                                <MudSwitch T="bool" Value="category.IsVisible" ValueChanged="@(v => ToggleVisibilityAsync(category, v))" Color="Color.Primary" Size="Size.Small" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="@(() => DeleteCategoryAsync(category))" />
+                            </div>
+                        </div>
+                    </MudListItem>
+                }
+            </MudList>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="12" md="8">
+        @if (_selectedCategory is not null)
+        {
+            <MudPaper Class="pa-4" Outlined="true">
+                <div class="d-flex align-center justify-space-between">
+                    <MudText Typo="Typo.h6">Products in "@_selectedCategory.Name"</MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => OpenProductEditor(null))">
+                        New product
+                    </MudButton>
+                </div>
+
+                <MudTable Items="_products" Hover="true" Class="mt-4">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Price</MudTh>
+                        <MudTh>Available</MudTh>
+                        <MudTh>Active</MudTh>
+                        <MudTh>Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Name</MudTd>
+                        <MudTd>@context.Price.ToString("C")</MudTd>
+                        <MudTd><MudSwitch T="bool" Value="context.IsAvailable" ValueChanged="@(v => SetAvailabilityAsync(context, v))" Color="Color.Primary" Size="Size.Small" /></MudTd>
+                        <MudTd><MudSwitch T="bool" Value="context.IsActive" ValueChanged="@(v => SetActiveAsync(context, v))" Color="Color.Primary" Size="Size.Small" /></MudTd>
+                        <MudTd><MudButton Size="Size.Small" OnClick="@(() => OpenProductEditor(context))">Edit</MudButton></MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudPaper>
+        }
+        else
+        {
+            <MudText>Select a category to manage its products.</MudText>
+        }
+    </MudItem>
+</MudGrid>
+
+<MudDialog @bind-Visible="_showProductEditor" Options="_dialogOptions">
+    <TitleContent>@(_editingProductId is null ? "New product" : "Edit product")</TitleContent>
+    <DialogContent>
+        <MudTextField T="string" Label="Name" @bind-Value="_productForm.Name" />
+        <MudTextField T="string?" Label="Description" @bind-Value="_productForm.Description" Lines="2" />
+        <MudNumericField T="decimal" Label="Price" @bind-Value="_productForm.Price" Format="F2" />
+        <MudTextField T="string?" Label="Photo URL" @bind-Value="_productForm.PhotoUrl" />
+
+        <MudText Typo="Typo.subtitle2" Class="mt-3">Variations</MudText>
+        @foreach (var variation in _productForm.Variations)
+        {
+            <MudGrid>
+                <MudItem xs="6"><MudTextField T="string" Label="Name" @bind-Value="variation.Name" /></MudItem>
+                <MudItem xs="4"><MudNumericField T="decimal" Label="Price adjustment" @bind-Value="variation.PriceAdjustment" Format="F2" /></MudItem>
+                <MudItem xs="2">
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" OnClick="@(() => _productForm.Variations.Remove(variation))" />
+                </MudItem>
+            </MudGrid>
+        }
+        <MudButton OnClick="@(() => _productForm.Variations.Add(new VariationFormModel()))">Add variation</MudButton>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showProductEditor = false)">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SaveProductAsync">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<CategoryResponse> _categories = [];
+    private List<ProductResponse> _products = [];
+    private CategoryResponse? _selectedCategory;
+    private string _newCategoryName = "";
+
+    private bool _showProductEditor;
+    private Guid? _editingProductId;
+    private ProductFormModel _productForm = new();
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+    protected override Task OnInitializedAsync() => LoadCategoriesAsync();
+
+    private async Task LoadCategoriesAsync()
+    {
+        _categories = await Http.GetFromJsonAsync<List<CategoryResponse>>("api/menu/categories") ?? [];
+    }
+
+    private async Task SelectCategoryAsync(CategoryResponse category)
+    {
+        _selectedCategory = category;
+        _products = await Http.GetFromJsonAsync<List<ProductResponse>>($"api/menu/products?categoryId={category.Id}") ?? [];
+    }
+
+    private async Task CreateCategoryAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newCategoryName))
+        {
+            return;
+        }
+
+        await Http.PostAsJsonAsync("api/menu/categories", new CreateCategoryRequest(_newCategoryName));
+        _newCategoryName = "";
+        await LoadCategoriesAsync();
+    }
+
+    private async Task ToggleVisibilityAsync(CategoryResponse category, bool visible)
+    {
+        await Http.PutAsJsonAsync($"api/menu/categories/{category.Id}/visibility", new SetCategoryVisibilityRequest(visible));
+        await LoadCategoriesAsync();
+    }
+
+    private async Task DeleteCategoryAsync(CategoryResponse category)
+    {
+        var response = await Http.DeleteAsync($"api/menu/categories/{category.Id}");
+        if (!response.IsSuccessStatusCode)
+        {
+            Snackbar.Add("Could not delete category (it may still have products).", Severity.Error);
+        }
+
+        await LoadCategoriesAsync();
+    }
+
+    private void OpenProductEditor(ProductResponse? product)
+    {
+        _editingProductId = product?.Id;
+        _productForm = product is null
+            ? new ProductFormModel()
+            : new ProductFormModel
+            {
+                Name = product.Name,
+                Description = product.Description,
+                Price = product.Price,
+                PhotoUrl = product.PhotoUrl,
+                Variations = product.Variations.Select(v => new VariationFormModel { Id = v.Id, Name = v.Name, PriceAdjustment = v.PriceAdjustment }).ToList()
+            };
+        _showProductEditor = true;
+    }
+
+    private async Task SaveProductAsync()
+    {
+        if (_selectedCategory is null)
+        {
+            return;
+        }
+
+        var variations = _productForm.Variations
+            .Select(v => new ProductVariationDto(v.Id, v.Name, v.PriceAdjustment)).ToList();
+
+        HttpResponseMessage response;
+        if (_editingProductId is null)
+        {
+            var request = new CreateProductRequest(_selectedCategory.Id, _productForm.Name, _productForm.Description, _productForm.Price, _productForm.PhotoUrl, variations);
+            response = await Http.PostAsJsonAsync("api/menu/products", request);
+        }
+        else
+        {
+            var request = new UpdateProductRequest(_selectedCategory.Id, _productForm.Name, _productForm.Description, _productForm.Price, _productForm.PhotoUrl, variations);
+            response = await Http.PutAsJsonAsync($"api/menu/products/{_editingProductId}", request);
+        }
+
+        if (response.IsSuccessStatusCode)
+        {
+            _showProductEditor = false;
+            await SelectCategoryAsync(_selectedCategory);
+        }
+        else
+        {
+            Snackbar.Add("Could not save product.", Severity.Error);
+        }
+    }
+
+    private async Task SetAvailabilityAsync(ProductResponse product, bool available)
+    {
+        await Http.PutAsJsonAsync($"api/menu/products/{product.Id}/availability", new SetProductAvailabilityRequest(available));
+        if (_selectedCategory is not null)
+        {
+            await SelectCategoryAsync(_selectedCategory);
+        }
+    }
+
+    private async Task SetActiveAsync(ProductResponse product, bool active)
+    {
+        await Http.PutAsJsonAsync($"api/menu/products/{product.Id}/active", new SetProductActiveRequest(active));
+        if (_selectedCategory is not null)
+        {
+            await SelectCategoryAsync(_selectedCategory);
+        }
+    }
+
+    private class ProductFormModel
+    {
+        public string Name { get; set; } = "";
+        public string? Description { get; set; }
+        public decimal Price { get; set; }
+        public string? PhotoUrl { get; set; }
+        public List<VariationFormModel> Variations { get; set; } = [];
+    }
+
+    private class VariationFormModel
+    {
+        public Guid? Id { get; set; }
+        public string Name { get; set; } = "";
+        public decimal PriceAdjustment { get; set; }
+    }
+}

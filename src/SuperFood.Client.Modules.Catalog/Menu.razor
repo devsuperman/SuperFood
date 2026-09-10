@@ -1,0 +1,266 @@
+@page "/order/{RestaurantId:guid}/table/{QrToken}"
+@page "/order/{RestaurantId:guid}/delivery"
+@layout PublicLayout
+@inject HttpClient Http
+@inject CartState Cart
+@inject NavigationManager Navigation
+@inject SuperFood.Client.Auth.ILocalStorageService LocalStorage
+@using SuperFood.Contracts.Catalog
+
+@if (_loading)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_menu is null)
+{
+    <MudAlert Severity="Severity.Error">This restaurant could not be found.</MudAlert>
+}
+else
+{
+    <div class="d-flex align-center mb-2">
+        @if (!string.IsNullOrEmpty(_menu.Restaurant.LogoUrl))
+        {
+            <MudAvatar Image="@_menu.Restaurant.LogoUrl" Class="mr-3" />
+        }
+        <div>
+            <MudText Typo="Typo.h4">@_menu.Restaurant.Name</MudText>
+            @if (_tableIdentifier is not null)
+            {
+                <MudText Typo="Typo.subtitle1">Table @_tableIdentifier</MudText>
+            }
+        </div>
+    </div>
+
+    @if (!_menu.Restaurant.IsOpenNow)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4">This restaurant is currently closed for ordering.</MudAlert>
+    }
+
+    @foreach (var category in _menu.Categories)
+    {
+        <MudText Typo="Typo.h6" Class="mt-4 mb-2">@category.Name</MudText>
+        @foreach (var product in category.Products)
+        {
+            <MudPaper Class="pa-3 mb-2" Outlined="true">
+                <div class="d-flex justify-space-between align-center">
+                    <div>
+                        <MudText Typo="Typo.subtitle1">@product.Name</MudText>
+                        @if (!string.IsNullOrWhiteSpace(product.Description))
+                        {
+                            <MudText Typo="Typo.body2">@product.Description</MudText>
+                        }
+                        <MudText Typo="Typo.body2">@product.Price.ToString("C")</MudText>
+                    </div>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!product.IsAvailable)"
+                        OnClick="@(() => OpenAddToCart(product))">
+                        @(product.IsAvailable ? "Add" : "Unavailable")
+                    </MudButton>
+                </div>
+            </MudPaper>
+        }
+    }
+
+    <MudPaper Class="pa-4 mt-4" Outlined="true" Style="position:sticky;bottom:0">
+        <div class="d-flex justify-space-between align-center">
+            <MudText Typo="Typo.h6">Cart: @Cart.Lines.Sum(l => l.Quantity) items - @Cart.Total.ToString("C")</MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Secondary" Disabled="@(Cart.Lines.Count == 0)"
+                OnClick="@(() => _showCart = true)">
+                Review &amp; order
+            </MudButton>
+        </div>
+    </MudPaper>
+}
+
+<MudDialog @bind-Visible="_showAddToCart" Options="_dialogOptions">
+    <TitleContent>@_selectedProduct?.Name</TitleContent>
+    <DialogContent>
+        @if (_selectedProduct?.Variations.Count > 0)
+        {
+            <MudSelect T="Guid?" Label="Options" @bind-Value="_selectedVariationId">
+                <MudSelectItem T="Guid?" Value="null">Regular</MudSelectItem>
+                @foreach (var v in _selectedProduct.Variations)
+                {
+                    <MudSelectItem T="Guid?" Value="@v.Id">@v.Name (+@v.PriceAdjustment.ToString("C"))</MudSelectItem>
+                }
+            </MudSelect>
+        }
+        <MudNumericField T="int" Label="Quantity" @bind-Value="_selectedQuantity" Min="1" />
+        <MudTextField T="string?" Label="Notes" @bind-Value="_selectedNotes" Lines="2" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showAddToCart = false)">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ConfirmAddToCart">Add to cart</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-Visible="_showCart" Options="_dialogOptions">
+    <TitleContent>Your order</TitleContent>
+    <DialogContent>
+        @foreach (var line in Cart.Lines)
+        {
+            <div class="d-flex justify-space-between align-center mb-2">
+                <MudText>@line.Quantity x @line.ProductName @(line.VariationName is not null ? $"({line.VariationName})" : "")</MudText>
+                <div>
+                    <MudText Class="mr-2" Style="display:inline">@line.LineTotal.ToString("C")</MudText>
+                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" OnClick="@(() => Cart.Remove(line))" />
+                </div>
+            </div>
+        }
+        <MudText Typo="Typo.h6" Class="mt-2">Total: @Cart.Total.ToString("C")</MudText>
+
+        @if (QrToken is null)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-4">Delivery details</MudText>
+            <MudTextField T="string" Label="Your name" @bind-Value="_delivery.CustomerName" />
+            <MudTextField T="string" Label="Address" @bind-Value="_delivery.Address" />
+            <MudTextField T="string" Label="Contact phone" @bind-Value="_delivery.ContactPhone" />
+        }
+
+        @if (_orderError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-3">@_orderError</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => _showCart = false)">Keep browsing</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="SubmitOrderAsync" Disabled="_submitting">
+            Place order
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public Guid RestaurantId { get; set; }
+    [Parameter] public string? QrToken { get; set; }
+
+    private PublicMenuResponse? _menu;
+    private string? _tableIdentifier;
+    private bool _loading = true;
+    private readonly DialogOptions _dialogOptions = new() { MaxWidth = MaxWidth.Small, FullWidth = true };
+
+    private bool _showAddToCart;
+    private PublicProductDto? _selectedProduct;
+    private Guid? _selectedVariationId;
+    private int _selectedQuantity = 1;
+    private string? _selectedNotes;
+
+    private bool _showCart;
+    private bool _submitting;
+    private string? _orderError;
+    private readonly DeliveryFormModel _delivery = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _menu = await Http.GetFromJsonAsync<PublicMenuResponse>($"api/public/restaurants/{RestaurantId}/menu");
+
+        if (QrToken is not null)
+        {
+            var tableInfo = await Http.GetFromJsonAsync<PublicTableInfoResponse>(
+                $"api/public/restaurants/{RestaurantId}/tables/{QrToken}");
+            _tableIdentifier = tableInfo?.TableIdentifier;
+        }
+
+        _loading = false;
+    }
+
+    private void OpenAddToCart(PublicProductDto product)
+    {
+        _selectedProduct = product;
+        _selectedVariationId = null;
+        _selectedQuantity = 1;
+        _selectedNotes = null;
+        _showAddToCart = true;
+    }
+
+    private void ConfirmAddToCart()
+    {
+        if (_selectedProduct is null)
+        {
+            return;
+        }
+
+        var variation = _selectedProduct.Variations.FirstOrDefault(v => v.Id == _selectedVariationId);
+        Cart.Add(new CartLine
+        {
+            ProductId = _selectedProduct.Id,
+            ProductName = _selectedProduct.Name,
+            VariationId = variation?.Id,
+            VariationName = variation?.Name,
+            UnitPrice = _selectedProduct.Price,
+            VariationPriceAdjustment = variation?.PriceAdjustment ?? 0,
+            Quantity = _selectedQuantity,
+            Notes = _selectedNotes
+        });
+
+        _showAddToCart = false;
+    }
+
+    private async Task SubmitOrderAsync()
+    {
+        _orderError = null;
+        _submitting = true;
+        try
+        {
+            var items = Cart.Lines.Select(l =>
+                new SuperFood.Contracts.Orders.OrderItemInputDto(l.ProductId, l.VariationId, l.Quantity, l.Notes)).ToList();
+
+            HttpResponseMessage response;
+            Guid orderId;
+            string? customerSessionId = null;
+
+            if (QrToken is not null)
+            {
+                response = await Http.PostAsJsonAsync(
+                    $"api/public/restaurants/{RestaurantId}/tables/{QrToken}/orders", items);
+            }
+            else
+            {
+                customerSessionId = await GetOrCreateCustomerSessionIdAsync();
+                var request = new SuperFood.Contracts.Orders.CreateDeliveryOrderRequest(
+                    new SuperFood.Contracts.Orders.DeliveryDetailsDto(_delivery.CustomerName, _delivery.Address, _delivery.ContactPhone),
+                    items, customerSessionId);
+                response = await Http.PostAsJsonAsync($"api/public/restaurants/{RestaurantId}/delivery-orders", request);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _orderError = "Could not place your order. Please try again.";
+                return;
+            }
+
+            var order = await response.Content.ReadFromJsonAsync<SuperFood.Contracts.Orders.OrderResponse>();
+            orderId = order!.Id;
+            Cart.Clear();
+
+            var confirmationUrl = QrToken is not null
+                ? $"/order/confirmation/{orderId}"
+                : $"/order/confirmation/{orderId}?session={customerSessionId}";
+            Navigation.NavigateTo(confirmationUrl);
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private async Task<string> GetOrCreateCustomerSessionIdAsync()
+    {
+        const string key = "superfood.customerSessionId";
+        var existing = await LocalStorage.GetItemAsync(key);
+        if (!string.IsNullOrEmpty(existing))
+        {
+            return existing;
+        }
+
+        var created = Guid.NewGuid().ToString("N");
+        await LocalStorage.SetItemAsync(key, created);
+        return created;
+    }
+
+    private class DeliveryFormModel
+    {
+        public string CustomerName { get; set; } = "";
+        public string Address { get; set; } = "";
+        public string ContactPhone { get; set; } = "";
+    }
+}

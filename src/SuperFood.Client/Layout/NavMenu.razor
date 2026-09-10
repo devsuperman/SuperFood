@@ -1,0 +1,21 @@
+<AuthorizeView>
+    <Authorized>
+        <MudNavMenu>
+            <MudNavLink Href="/admin" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
+
+            @if (context.User.FindFirst("is_platform_admin")?.Value == "true")
+            {
+                <MudNavLink Href="/admin/restaurants" Icon="@Icons.Material.Filled.Storefront">Restaurants</MudNavLink>
+            }
+            else
+            {
+                <MudNavLink Href="/admin/restaurant-profile" Icon="@Icons.Material.Filled.Storefront">My Restaurant</MudNavLink>
+                <MudNavLink Href="/admin/users" Icon="@Icons.Material.Filled.People">Staff &amp; Roles</MudNavLink>
+                <MudNavLink Href="/admin/menu" Icon="@Icons.Material.Filled.MenuBook">Menu</MudNavLink>
+                <MudNavLink Href="/admin/tables" Icon="@Icons.Material.Filled.TableRestaurant">Tables</MudNavLink>
+                <MudNavLink Href="/admin/orders/kitchen" Icon="@Icons.Material.Filled.Restaurant">Kitchen</MudNavLink>
+                <MudNavLink Href="/admin/orders/delivery" Icon="@Icons.Material.Filled.DeliveryDining">Delivery</MudNavLink>
+            }
+        </MudNavMenu>
+    </Authorized>
+</AuthorizeView>

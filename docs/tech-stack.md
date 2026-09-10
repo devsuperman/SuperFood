@@ -79,8 +79,11 @@ src/
     Identity/                     ApplicationUser, Identity setup
     RealTime/                     SignalR hubs
   SuperFood.Contracts/            DTOs shared between Api and Client
-  SuperFood.Client/                Blazor WebAssembly host app (shell, routing, auth, MudBlazor setup)
+  SuperFood.Client/                Blazor WebAssembly host app (shell, routing, MudBlazor setup)
     Program.cs
+  SuperFood.Client.Shared/        Razor Class Library — auth plumbing + PublicLayout, referenced by
+                                   the host AND every module (see ADR-10; keeps modules from having
+                                   to reference the host, which would create a reference cycle)
   SuperFood.Client.Modules.Restaurants/    Razor Class Library — EPIC-01/EPIC-02, lazy-loaded
   SuperFood.Client.Modules.Users/          Razor Class Library — EPIC-03, lazy-loaded
   SuperFood.Client.Modules.Menu/           Razor Class Library — EPIC-04/EPIC-05, lazy-loaded
@@ -169,9 +172,19 @@ CreateProduct.cs
     `orders:manage`, `tables:manage`, `users:manage`).
   - A restaurant's custom `Role` grants a subset of these permissions.
   - On login, the user's role's permissions are resolved into claims.
-  - Endpoints declare required permissions via a custom
-    `RequirePermission("orders:manage")` extension on `IEndpoint`, checked
-    by a custom `IAuthorizationHandler`.
+  - Endpoints declare required permissions via a `RequirePermission("orders:manage")`
+    extension (`Api/Common/RouteHandlerBuilderExtensions.cs`) — implemented as
+    `RequireAuthorization(permission)` against one ASP.NET Core policy per
+    fixed permission (`RequireClaim("permission", permission)`), registered
+    once in `Program.cs`. No custom `IAuthorizationHandler` was needed since a
+    single claim check is all any permission requires.
+  - **Client-side mirror**: Blazor's `[Authorize(Policy=...)]`/`AuthorizeView`
+    run against the client's own `AddAuthorizationCore` policy set — it does
+    not share the server's policy registrations. `SuperFood.Client/Program.cs`
+    registers the identical `platform_admin` + per-permission policies purely
+    for UI gating (show/hide nav links, redirect from a page the user
+    shouldn't see); the API re-checks every permission server-side regardless,
+    so this duplication is a UX nicety, not the security boundary.
 - **Customers remain unauthenticated** for browsing and ordering (US-0701,
   US-0801) — no account required. A lightweight anonymous session id
   (browser-stored, not tied to `ApplicationUser`) correlates a customer's
@@ -362,6 +375,7 @@ Publishing/deployment steps are `(future)` — not defined yet.
 | ADR-07 | No repository/unit-of-work abstraction over EF Core | Generic repository pattern | `DbContext` already is a unit of work; an extra abstraction with no distinct behavior adds indirection without benefit. |
 | ADR-08 | MudBlazor as the sole UI component library | Custom CSS/Bootstrap; another Blazor component kit | One consistent, themeable, actively-maintained Material Design component set covers both staff back-office (grids, forms, dialogs) and customer-facing screens without maintaining bespoke CSS. |
 | ADR-09 | Modular client: one Razor Class Library per feature area, lazy-loaded | Single monolithic Blazor WASM project | Keeps initial download small as features grow (a waiter never downloads the Platform Admin module); mirrors the backend's Vertical Slice feature boundaries so ownership of a feature maps 1:1 on both sides of the stack. |
+| ADR-10 | Extract `SuperFood.Client.Shared` (auth plumbing, `PublicLayout`) below both host and modules | Put auth types directly in `SuperFood.Client` | A module referencing the host to reach `ITokenAccessor`/`PublicLayout` would create a project-reference cycle (the host already references every module). A small shared library sitting below both sides resolves it without weakening the "modules don't reference each other" rule. |
 
 ---
 

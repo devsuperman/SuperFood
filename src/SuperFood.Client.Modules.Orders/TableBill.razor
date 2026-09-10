@@ -1,0 +1,82 @@
+@page "/admin/orders/table/{TableId:guid}"
+@attribute [Authorize(Policy = "orders:manage")]
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+@using SuperFood.Contracts.Orders
+
+<MudText Typo="Typo.h4" GutterBottom="true">Table Bill</MudText>
+
+@foreach (var order in _orders)
+{
+    <MudPaper Class="pa-4 mb-3" Outlined="true">
+        <div class="d-flex justify-space-between">
+            <MudText Typo="Typo.h6">Round @order.CreatedAt.ToLocalTime().ToString("t") - @order.Total.ToString("C")</MudText>
+            <MudChip T="string" Size="Size.Small" Color="@(order.PaymentStatus == "Paid" ? Color.Success : Color.Warning)">@order.PaymentStatus</MudChip>
+        </div>
+        <ul>
+            @foreach (var item in order.Items)
+            {
+                <li>@item.Quantity x @item.ProductName @(item.VariationName is not null ? $"({item.VariationName})" : "") - @item.Status</li>
+            }
+        </ul>
+        @if (order.PaymentStatus == "Unpaid")
+        {
+            <MudButton Size="Size.Small" Color="Color.Primary" OnClick="@(() => MarkPaidAsync(order.Id))">Mark paid (cash)</MudButton>
+        }
+    </MudPaper>
+}
+
+<MudText Typo="Typo.h6" Class="mt-4">Total: @_orders.Sum(o => o.Total).ToString("C")</MudText>
+
+<MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!AllPaid)" OnClick="CloseTableAsync">
+    Close table
+</MudButton>
+@if (!AllPaid)
+{
+    <MudText Typo="Typo.caption" Class="ml-2">All rounds must be paid before closing.</MudText>
+}
+
+@code {
+    [Parameter] public Guid TableId { get; set; }
+
+    private List<OrderResponse> _orders = [];
+    private bool AllPaid => _orders.Count > 0 && _orders.All(o => o.PaymentStatus == "Paid" || o.Status == "Cancelled");
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _orders = await Http.GetFromJsonAsync<List<OrderResponse>>($"api/tables/{TableId}/session/orders") ?? [];
+    }
+
+    private async Task MarkPaidAsync(Guid orderId)
+    {
+        await Http.PostAsJsonAsync($"api/orders/{orderId}/pay", new MarkOrderPaidRequest("Cash"));
+        await LoadAsync();
+    }
+
+    private async Task CloseTableAsync()
+    {
+        // The session id isn't known here directly; the API resolves the
+        // table's currently open session, so we just need any order's id
+        // pattern - simplest is to ask the API for the open session via the
+        // table's orders response (TableSessionId is the same across rounds).
+        var sessionId = _orders.FirstOrDefault()?.TableSessionId;
+        if (sessionId is null)
+        {
+            Snackbar.Add("No open session for this table.", Severity.Warning);
+            return;
+        }
+
+        var response = await Http.PostAsync($"api/tables/{TableId}/sessions/{sessionId}/close", null);
+        if (response.IsSuccessStatusCode)
+        {
+            Navigation.NavigateTo("/admin/tables");
+        }
+        else
+        {
+            Snackbar.Add("Could not close table - check all rounds are paid.", Severity.Error);
+        }
+    }
+}
