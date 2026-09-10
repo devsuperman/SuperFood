@@ -5,6 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
+    <NoWarn>CS8669</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,24 +19,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\SuperFood.Contracts\SuperFood.Contracts.csproj" />
-    <!-- Staff/admin modules are lazy-loaded (docs/tech-stack.md §9.3) - fetched
-         only when a route in them is first visited. -->
-    <ProjectReference Include="..\SuperFood.Client.Modules.Restaurants\SuperFood.Client.Modules.Restaurants.csproj" />
-    <ProjectReference Include="..\SuperFood.Client.Modules.Users\SuperFood.Client.Modules.Users.csproj" />
-    <ProjectReference Include="..\SuperFood.Client.Modules.Menu\SuperFood.Client.Modules.Menu.csproj" />
-    <ProjectReference Include="..\SuperFood.Client.Modules.Tables\SuperFood.Client.Modules.Tables.csproj" />
-    <ProjectReference Include="..\SuperFood.Client.Modules.Orders\SuperFood.Client.Modules.Orders.csproj" />
-    <!-- Catalog is the customer-facing QR-scan landing experience: loaded eagerly. -->
-    <ProjectReference Include="..\SuperFood.Client.Modules.Catalog\SuperFood.Client.Modules.Catalog.csproj" />
-    <ProjectReference Include="..\SuperFood.Client.Shared\SuperFood.Client.Shared.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <BlazorWebAssemblyLazyLoad Include="SuperFood.Client.Modules.Restaurants.dll" />
-    <BlazorWebAssemblyLazyLoad Include="SuperFood.Client.Modules.Users.dll" />
-    <BlazorWebAssemblyLazyLoad Include="SuperFood.Client.Modules.Menu.dll" />
-    <BlazorWebAssemblyLazyLoad Include="SuperFood.Client.Modules.Tables.dll" />
-    <BlazorWebAssemblyLazyLoad Include="SuperFood.Client.Modules.Orders.dll" />
   </ItemGroup>
 
 </Project>

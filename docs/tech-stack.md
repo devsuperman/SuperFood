@@ -79,26 +79,26 @@ src/
     Identity/                     ApplicationUser, Identity setup
     RealTime/                     SignalR hubs
   SuperFood.Contracts/            DTOs shared between Api and Client
-  SuperFood.Client/                Blazor WebAssembly host app (shell, routing, MudBlazor setup)
+  SuperFood.Client/                Blazor WebAssembly app — single project (ADR-11)
+    Auth/                          AuthenticationStateProvider, session storage, auth HTTP handler
+    Layout/                        MainLayout (staff shell), PublicLayout (customer-facing pages), NavMenu
+    Pages/                         Home, Login, Dashboard, NotFound — host-level, not feature-specific
+    Features/
+      Restaurants/                 EPIC-01, EPIC-02
+      Users/                       EPIC-03
+      Menu/                        EPIC-04, EPIC-05
+      Tables/                      EPIC-06
+      Orders/                      EPIC-07, EPIC-08, EPIC-09
+      Catalog/                     EPIC-10 (customer-facing menu/cart/checkout)
     Program.cs
-  SuperFood.Client.Shared/        Razor Class Library — auth plumbing + PublicLayout, referenced by
-                                   the host AND every module (see ADR-10; keeps modules from having
-                                   to reference the host, which would create a reference cycle)
-  SuperFood.Client.Modules.Restaurants/    Razor Class Library — EPIC-01/EPIC-02, lazy-loaded
-  SuperFood.Client.Modules.Users/          Razor Class Library — EPIC-03, lazy-loaded
-  SuperFood.Client.Modules.Menu/           Razor Class Library — EPIC-04/EPIC-05, lazy-loaded
-  SuperFood.Client.Modules.Tables/         Razor Class Library — EPIC-06, lazy-loaded
-  SuperFood.Client.Modules.Orders/         Razor Class Library — EPIC-07/EPIC-08/EPIC-09, lazy-loaded
-  SuperFood.Client.Modules.Catalog/        Razor Class Library — EPIC-10, eagerly loaded (customer-facing landing experience)
 tests/
   SuperFood.UnitTests/            mirrors Api/Features folder names
   SuperFood.IntegrationTests/     Testcontainers-based, one test class per slice
 ```
 
-**Rule**: a folder name under `Features/` in `SuperFood.Api` and `tests/*`
-should always match the corresponding `SuperFood.Client.Modules.<Area>`
-project name — this is how an implementer locates every layer of one
-feature without a lookup table.
+**Rule**: a folder name under `Features/` in `SuperFood.Api` and
+`SuperFood.Client` (and under `tests/*`) should always match — this is how
+an implementer locates every layer of one feature without a lookup table.
 
 ---
 
@@ -258,62 +258,45 @@ CreateProduct.cs
   own ad-hoc styles for things MudBlazor already themes (buttons, inputs,
   cards, dialogs).
 
-### 9.2 Modular architecture
+### 9.2 Single project, feature folders (ADR-11)
 
-- Each feature area is its own **Razor Class Library (RCL)** project
-  (`SuperFood.Client.Modules.<Area>`, Section 2), containing that area's
-  pages, components, and feature-scoped state services. `SuperFood.Client`
-  itself is a thin host: shell layout, routing table, auth bootstrapping,
-  and MudBlazor registration — it contains no feature logic of its own.
-- A module project depends only on `SuperFood.Contracts` and shared
-  UI/auth infrastructure exposed by the host — never on another module
-  project directly. Cross-module navigation happens through routed URLs,
-  not direct component/service references, so modules stay independently
-  buildable and (see below) independently loadable.
-- This mirrors the backend's Vertical Slice boundaries (Section 3) on the
-  client side: a contributor adding a feature touches one module project,
-  not the shared host.
+- `SuperFood.Client` is one Blazor WebAssembly project. Each feature area is
+  a plain folder under `Features/<Area>/` (Section 2) — no per-feature
+  assembly, no lazy loading, no shared library needed to avoid a
+  project-reference cycle. This mirrors the backend's Vertical Slice
+  boundaries (Section 3) the same way the earlier modular split did, at a
+  fraction of the ceremony: adding a feature means adding a folder, not a
+  new `.csproj` plus wiring it into the host.
+- `Auth/`, `Layout/`, and top-level `Pages/` (Home, Login, Dashboard,
+  NotFound) are host-level concerns, not tied to one feature — every
+  `Features/*` folder can use them freely since it's all one project.
+- A page still shouldn't reach into another feature folder's internals
+  (e.g. `Features/Orders` calling into `Features/Menu`'s private state) —
+  that boundary is a convention now, not a compiler-enforced one, but the
+  same "talk through the API, not through shared in-memory state" discipline
+  from Section 3 still applies.
 
-### 9.3 Lazy loading
+### 9.3 Contracts, auth, and real-time
 
-- Each `SuperFood.Client.Modules.<Area>` assembly (and its dependencies) is
-  marked as a `BlazorWebAssemblyLazyLoad` item in the host's `.csproj`, so
-  it is **not** downloaded on first page load.
-- The host's `Router` uses `OnNavigateAsync` to resolve which module
-  assembly a requested route belongs to and calls
-  `LazyAssemblyLoader.LoadAssembliesAsync(...)` before rendering, showing a
-  MudBlazor loading indicator while the module downloads.
-- `SuperFood.Client.Modules.Catalog` (EPIC-10, the public customer-facing
-  menu/ordering flow — the highest-traffic, first-impression surface) is
-  the one module loaded eagerly with the host, so a customer scanning a
-  table QR code doesn't wait on an extra assembly fetch. All staff/admin
-  modules (Restaurants, Users, Menu management, Tables, Orders/Kitchen) are
-  lazy-loaded, since a given staff member typically only visits the modules
-  relevant to their role (Section 5) — this keeps their initial download
-  small and scales as more feature modules are added later.
-
-### 9.4 Contracts, auth, and real-time
-
-- **`SuperFood.Contracts`** is referenced directly by every module project —
-  the same `CreateProductRequest`/`Response` records used by the API are
-  used by the client, eliminating manual DTO duplication and drift.
-- **Auth**: custom `AuthenticationStateProvider` (in the host) reads the JWT
-  from browser local storage; a typed `HttpClient` per feature area
-  (e.g. `IProductsApiClient`, defined in its own module) is registered with
-  a `DelegatingHandler` that attaches the bearer token. A module can only
-  call its own typed clients — it never reaches into another module's
-  HTTP client.
+- **`SuperFood.Contracts`** is the one project reference `SuperFood.Client`
+  needs from the server side — the same `CreateProductRequest`/`Response`
+  records used by the API are used by the client, eliminating manual DTO
+  duplication and drift.
+- **Auth**: `Auth/ApiAuthenticationStateProvider` reads the JWT from browser
+  local storage (via `Auth/AuthSessionStore`); `Auth/AuthorizationMessageHandler`
+  is a `DelegatingHandler` attaching the bearer token to the one named
+  `HttpClient` ("Api") every page injects directly — no per-feature typed
+  clients, since there's no module boundary left to justify them.
 - **Real-time**: `Microsoft.AspNetCore.SignalR.Client` connects to
-  `OrdersHub` for the Kitchen and Waiter views inside
-  `SuperFood.Client.Modules.Orders`; the public customer-facing
-  menu/ordering pages in `Modules.Catalog` do not need a live connection
-  except for order-status polling/updates (US-0806).
-- **State management**: scoped DI services hold in-memory state local to
-  their own module (e.g. `CartState` in `Modules.Catalog`). No external
-  state management library is introduced until a concrete need for
-  cross-module shared state appears — and even then, state is passed via
-  the URL/query string or re-fetched from the API rather than through a
-  direct module-to-module reference, to preserve the lazy-loading boundary.
+  `OrdersHub` from `Features/Orders`' Kitchen and Delivery queue pages,
+  using the injected `HttpClient.BaseAddress` to build the hub URL and
+  `AuthSessionStore` for the token. The public customer-facing pages in
+  `Features/Catalog` don't need a live connection except for order-status
+  polling (US-0806).
+- **State management**: scoped DI services hold in-memory state for one
+  feature (e.g. `CartState` in `Features/Catalog`). No external state
+  management library is introduced until a concrete need for cross-feature
+  shared state appears.
 
 ---
 
@@ -374,8 +357,9 @@ Publishing/deployment steps are `(future)` — not defined yet.
 | ADR-06 | Permission-claims model over static role attributes | `[Authorize(Roles = "...")]` with fixed role enum | Restaurant owners define custom roles at runtime (US-0302); permissions must be checked, not fixed role names. |
 | ADR-07 | No repository/unit-of-work abstraction over EF Core | Generic repository pattern | `DbContext` already is a unit of work; an extra abstraction with no distinct behavior adds indirection without benefit. |
 | ADR-08 | MudBlazor as the sole UI component library | Custom CSS/Bootstrap; another Blazor component kit | One consistent, themeable, actively-maintained Material Design component set covers both staff back-office (grids, forms, dialogs) and customer-facing screens without maintaining bespoke CSS. |
-| ADR-09 | Modular client: one Razor Class Library per feature area, lazy-loaded | Single monolithic Blazor WASM project | Keeps initial download small as features grow (a waiter never downloads the Platform Admin module); mirrors the backend's Vertical Slice feature boundaries so ownership of a feature maps 1:1 on both sides of the stack. |
-| ADR-10 | Extract `SuperFood.Client.Shared` (auth plumbing, `PublicLayout`) below both host and modules | Put auth types directly in `SuperFood.Client` | A module referencing the host to reach `ITokenAccessor`/`PublicLayout` would create a project-reference cycle (the host already references every module). A small shared library sitting below both sides resolves it without weakening the "modules don't reference each other" rule. |
+| ADR-09 | ~~Modular client: one Razor Class Library per feature area, lazy-loaded~~ **Superseded by ADR-11.** | Single monolithic Blazor WASM project | Keeps initial download small as features grow (a waiter never downloads the Platform Admin module); mirrors the backend's Vertical Slice feature boundaries so ownership of a feature maps 1:1 on both sides of the stack. |
+| ADR-10 | ~~Extract `SuperFood.Client.Shared` (auth plumbing, `PublicLayout`) below both host and modules~~ **Superseded by ADR-11.** | Put auth types directly in `SuperFood.Client` | A module referencing the host to reach `ITokenAccessor`/`PublicLayout` would create a project-reference cycle (the host already references every module). A small shared library sitting below both sides resolves it without weakening the "modules don't reference each other" rule. |
+| ADR-11 | Single `SuperFood.Client` project with `Features/<Area>` folders, no lazy loading | Keep the ADR-09/ADR-10 modular split (one RCL per feature + a Shared project + lazy loading) | In practice the split added a project-reference-cycle workaround (ADR-10), an `ITokenAccessor` indirection layer, and lazy-loading wiring (`OnNavigateAsync`, `BlazorWebAssemblyLazyLoad` items) — real ceremony for an app whose staff-side pages are a handful of KB of C#. The download-size benefit ADR-09 argued for doesn't pay for that at this size; feature folders keep the same VSA-mirroring benefit without the machinery. Revisit if the client's initial payload actually becomes a problem. |
 
 ---
 
@@ -383,13 +367,13 @@ Publishing/deployment steps are `(future)` — not defined yet.
 
 | Epic | Backend location | Frontend location | Key architecture pieces |
 |---|---|---|---|
-| EPIC-01 Platform Administration | `Api/Features/Restaurants` | `Client.Modules.Restaurants` (lazy) | Query filter bypass (Section 4), `platform_admin` permission set |
-| EPIC-02 Restaurant Settings & Onboarding | `Api/Features/Restaurants` | `Client.Modules.Restaurants` (lazy) | Standard tenant-scoped slice |
-| EPIC-03 User & Role Management | `Api/Features/Users` | `Client.Modules.Users` (lazy) | Permission-claims model (Section 5, ADR-06) |
-| EPIC-04 Menu Categories | `Api/Features/Menu/Categories` | `Client.Modules.Menu` (lazy) | Standard tenant-scoped slice |
-| EPIC-05 Menu Products | `Api/Features/Menu/Products` | `Client.Modules.Menu` (lazy) | Standard tenant-scoped slice |
-| EPIC-06 Table Management | `Api/Features/Tables` | `Client.Modules.Tables` (lazy) | QR generation, table session state |
-| EPIC-07 On-Site Order Management | `Api/Features/Orders/DineIn` | `Client.Modules.Orders` (lazy) | `OrdersHub` (Section 7) |
-| EPIC-08 Delivery Order Management | `Api/Features/Orders/Delivery` | `Client.Modules.Orders` (lazy) | `OrdersHub`, anonymous session id (Section 5) |
-| EPIC-09 Order Lifecycle & Kitchen Workflow | `Api/Features/Orders/Kitchen` | `Client.Modules.Orders` (lazy) | `OrdersHub` events (Section 7) |
-| EPIC-10 Customer Ordering Experience | `Api/Features/Catalog` | `Client.Modules.Catalog` (eager) | Unauthenticated endpoints, `CartState`, MudBlazor (Section 9) |
+| EPIC-01 Platform Administration | `Api/Features/Restaurants` | `Client/Features/Restaurants` | Query filter bypass (Section 4), `platform_admin` permission set |
+| EPIC-02 Restaurant Settings & Onboarding | `Api/Features/Restaurants` | `Client/Features/Restaurants` | Standard tenant-scoped slice |
+| EPIC-03 User & Role Management | `Api/Features/Users` | `Client/Features/Users` | Permission-claims model (Section 5, ADR-06) |
+| EPIC-04 Menu Categories | `Api/Features/Menu/Categories` | `Client/Features/Menu` | Standard tenant-scoped slice |
+| EPIC-05 Menu Products | `Api/Features/Menu/Products` | `Client/Features/Menu` | Standard tenant-scoped slice |
+| EPIC-06 Table Management | `Api/Features/Tables` | `Client/Features/Tables` | QR generation, table session state |
+| EPIC-07 On-Site Order Management | `Api/Features/Orders/DineIn` | `Client/Features/Orders` | `OrdersHub` (Section 7) |
+| EPIC-08 Delivery Order Management | `Api/Features/Orders/Delivery` | `Client/Features/Orders` | `OrdersHub`, anonymous session id (Section 5) |
+| EPIC-09 Order Lifecycle & Kitchen Workflow | `Api/Features/Orders/Kitchen` | `Client/Features/Orders` | `OrdersHub` events (Section 7) |
+| EPIC-10 Customer Ordering Experience | `Api/Features/Catalog` | `Client/Features/Catalog` | Unauthenticated endpoints, `CartState`, MudBlazor (Section 9) |

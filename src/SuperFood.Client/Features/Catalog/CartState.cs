@@ -1,4 +1,4 @@
-namespace SuperFood.Client.Modules.Catalog;
+namespace SuperFood.Client.Features.Catalog;
 
 public class CartLine
 {

@@ -2,8 +2,7 @@
 @attribute [Authorize(Policy = "kitchen:manage")]
 @implements IAsyncDisposable
 @inject HttpClient Http
-@inject SuperFood.Client.Auth.ITokenAccessor TokenAccessor
-@inject Uri ApiBaseUrl
+@inject AuthSessionStore SessionStore
 @using Microsoft.AspNetCore.SignalR.Client
 @using SuperFood.Contracts.Orders
 
@@ -60,9 +59,9 @@
     {
         await LoadAsync();
 
-        var token = await TokenAccessor.GetAccessTokenAsync();
+        var session = await SessionStore.GetAsync();
         _hub = new HubConnectionBuilder()
-            .WithUrl(new Uri(ApiBaseUrl, "hubs/orders"), options => options.AccessTokenProvider = () => Task.FromResult(token))
+            .WithUrl(new Uri(Http.BaseAddress!, "hubs/orders"), options => options.AccessTokenProvider = () => Task.FromResult(session?.AccessToken))
             .WithAutomaticReconnect()
             .Build();
 

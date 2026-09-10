@@ -1,10 +1,5 @@
-@using Microsoft.AspNetCore.Components.WebAssembly.Services
-@using System.Reflection
-@inject LazyAssemblyLoader LazyAssemblyLoader
-
 <CascadingAuthenticationState>
-    <Router AppAssembly="@typeof(App).Assembly" AdditionalAssemblies="@_lazyLoadedAssemblies"
-        NotFoundPage="typeof(Pages.NotFound)" OnNavigateAsync="OnNavigateAsync">
+    <Router AppAssembly="@typeof(App).Assembly" NotFoundPage="typeof(Pages.NotFound)">
         <Found Context="routeData">
             <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)">
                 <NotAuthorized>
@@ -15,36 +10,3 @@
         </Found>
     </Router>
 </CascadingAuthenticationState>
-
-@code {
-    // Staff/admin modules load together the first time any /admin route is
-    // visited (docs/tech-stack.md §9.3) - a customer scanning a table QR
-    // code never downloads them.
-    private static readonly string[] AdminModuleAssemblies =
-    [
-        "SuperFood.Client.Modules.Restaurants.dll",
-        "SuperFood.Client.Modules.Users.dll",
-        "SuperFood.Client.Modules.Menu.dll",
-        "SuperFood.Client.Modules.Tables.dll",
-        "SuperFood.Client.Modules.Orders.dll"
-    ];
-
-    // The Router only scans AppAssembly + AdditionalAssemblies for routable
-    // pages - Catalog is compiled in eagerly but still needs to be listed
-    // here so its /order/... routes are found; the admin modules join this
-    // list dynamically once lazy-loaded below.
-    private readonly List<Assembly> _lazyLoadedAssemblies = [typeof(Modules.Catalog.CartState).Assembly];
-    private bool _adminModulesLoaded;
-
-    private async Task OnNavigateAsync(Microsoft.AspNetCore.Components.Routing.NavigationContext context)
-    {
-        if (_adminModulesLoaded || !context.Path.StartsWith("admin", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        var assemblies = await LazyAssemblyLoader.LoadAssembliesAsync(AdminModuleAssemblies);
-        _lazyLoadedAssemblies.AddRange(assemblies);
-        _adminModulesLoaded = true;
-    }
-}
