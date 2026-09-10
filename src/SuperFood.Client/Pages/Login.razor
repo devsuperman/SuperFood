@@ -1,0 +1,56 @@
+@page "/login"
+@layout PublicLayout
+@inject SuperFood.Client.Auth.AuthApiClient AuthApiClient
+@inject NavigationManager Navigation
+
+<MudText Typo="Typo.h4" GutterBottom="true">Sign in</MudText>
+
+<MudForm @ref="_form" Model="_model">
+    <MudTextField T="string" Label="Email" @bind-Value="_model.Email" Required="true" InputType="InputType.Email" />
+    <MudTextField T="string" Label="Password" @bind-Value="_model.Password" Required="true" InputType="InputType.Password" />
+
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-3">@_error</MudAlert>
+    }
+
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mt-4" OnClick="SubmitAsync" Disabled="_busy">
+        Sign in
+    </MudButton>
+</MudForm>
+
+@code {
+    [SupplyParameterFromQuery] public string? ReturnUrl { get; set; }
+
+    private MudForm _form = default!;
+    private readonly LoginModel _model = new();
+    private string? _error;
+    private bool _busy;
+
+    private async Task SubmitAsync()
+    {
+        _error = null;
+        _busy = true;
+        try
+        {
+            var success = await AuthApiClient.LoginAsync(_model.Email, _model.Password);
+            if (!success)
+            {
+                _error = "Invalid email or password.";
+                return;
+            }
+
+            Navigation.NavigateTo(string.IsNullOrEmpty(ReturnUrl) ? "/admin" : ReturnUrl, forceLoad: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private class LoginModel
+    {
+        public string Email { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}

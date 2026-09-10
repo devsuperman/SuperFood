@@ -1,0 +1,112 @@
+@page "/admin/restaurants"
+@attribute [Authorize(Policy = "platform_admin")]
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+@using SuperFood.Contracts.Restaurants
+
+<MudText Typo="Typo.h4" GutterBottom="true">Restaurants</MudText>
+
+<MudButton Variant="Variant.Filled" Color="Color.Primary" Class="mb-4" OnClick="@(() => _showCreate = true)">
+    New restaurant
+</MudButton>
+
+@if (_showCreate)
+{
+    <MudPaper Class="pa-4 mb-4" Outlined="true">
+        <MudGrid>
+            <MudItem xs="12" md="4"><MudTextField T="string" Label="Restaurant name" @bind-Value="_create.Name" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField T="string" Label="Owner full name" @bind-Value="_create.OwnerFullName" /></MudItem>
+            <MudItem xs="12" md="4"><MudTextField T="string" Label="Owner email" @bind-Value="_create.OwnerEmail" /></MudItem>
+        </MudGrid>
+        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync">Create</MudButton>
+        <MudButton Class="mt-3 ml-2" OnClick="@(() => _showCreate = false)">Cancel</MudButton>
+    </MudPaper>
+}
+
+@if (_created is not null)
+{
+    <MudAlert Severity="Severity.Success" Class="mb-4">
+        Created. Temporary password for @_created.OwnerEmail: <strong>@_created.TemporaryPassword</strong>
+    </MudAlert>
+}
+
+<MudTable Items="_restaurants" Loading="_loading" Hover="true">
+    <HeaderContent>
+        <MudTh>Name</MudTh>
+        <MudTh>Status</MudTh>
+        <MudTh>Created</MudTh>
+        <MudTh>Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>@context.Name</MudTd>
+        <MudTd>
+            <MudChip T="string" Color="@(context.Status == "Active" ? Color.Success : Color.Warning)" Size="Size.Small">
+                @context.Status
+            </MudChip>
+        </MudTd>
+        <MudTd>@context.CreatedAt.ToLocalTime().ToString("g")</MudTd>
+        <MudTd>
+            @if (context.Status == "Active")
+            {
+                <MudButton Size="Size.Small" OnClick="@(() => SuspendAsync(context.Id))">Suspend</MudButton>
+            }
+            else
+            {
+                <MudButton Size="Size.Small" OnClick="@(() => ReactivateAsync(context.Id))">Reactivate</MudButton>
+            }
+        </MudTd>
+    </RowTemplate>
+</MudTable>
+
+@code {
+    private List<RestaurantSummaryResponse> _restaurants = [];
+    private bool _loading = true;
+    private bool _showCreate;
+    private CreateRestaurantFormModel _create = new();
+    private CreateRestaurantResponse? _created;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _restaurants = await Http.GetFromJsonAsync<List<RestaurantSummaryResponse>>("api/restaurants") ?? [];
+        _loading = false;
+    }
+
+    private async Task CreateAsync()
+    {
+        var request = new CreateRestaurantRequest(_create.Name, null, null, null, _create.OwnerFullName, _create.OwnerEmail);
+        var response = await Http.PostAsJsonAsync("api/restaurants", request);
+        if (response.IsSuccessStatusCode)
+        {
+            _created = await response.Content.ReadFromJsonAsync<CreateRestaurantResponse>();
+            _showCreate = false;
+            _create = new();
+            await LoadAsync();
+        }
+        else
+        {
+            Snackbar.Add("Could not create restaurant.", Severity.Error);
+        }
+    }
+
+    private class CreateRestaurantFormModel
+    {
+        public string Name { get; set; } = "";
+        public string OwnerFullName { get; set; } = "";
+        public string OwnerEmail { get; set; } = "";
+    }
+
+    private async Task SuspendAsync(Guid id)
+    {
+        await Http.PostAsync($"api/restaurants/{id}/suspend", null);
+        await LoadAsync();
+    }
+
+    private async Task ReactivateAsync(Guid id)
+    {
+        await Http.PostAsync($"api/restaurants/{id}/reactivate", null);
+        await LoadAsync();
+    }
+}

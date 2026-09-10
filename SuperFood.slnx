@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SuperFood.Api/SuperFood.Api.csproj" />
+    <Project Path="src/SuperFood.Client/SuperFood.Client.csproj" />
+    <Project Path="src/SuperFood.Contracts/SuperFood.Contracts.csproj" />
+    <Project Path="src/SuperFood.Domain/SuperFood.Domain.csproj" />
+    <Project Path="src/SuperFood.Infrastructure/SuperFood.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SuperFood.IntegrationTests/SuperFood.IntegrationTests.csproj" />
+    <Project Path="tests/SuperFood.UnitTests/SuperFood.UnitTests.csproj" />
+  </Folder>
+</Solution>

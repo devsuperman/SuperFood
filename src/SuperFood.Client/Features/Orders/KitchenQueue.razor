@@ -1,0 +1,101 @@
+@page "/admin/orders/kitchen"
+@attribute [Authorize(Policy = "kitchen:manage")]
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject AuthSessionStore SessionStore
+@using Microsoft.AspNetCore.SignalR.Client
+@using SuperFood.Contracts.Orders
+
+<MudText Typo="Typo.h4" GutterBottom="true">Kitchen Queue</MudText>
+<MudText Typo="Typo.caption" Class="mb-4">
+    Live via SignalR - <MudChip T="string" Size="Size.Small" Color="@(_connected ? Color.Success : Color.Default)">
+        @(_connected ? "connected" : "connecting...")</MudChip>
+</MudText>
+
+@foreach (var order in _orders)
+{
+    <MudPaper Class="pa-4 mb-3" Outlined="true">
+        <div class="d-flex justify-space-between">
+            <MudText Typo="Typo.h6">@order.Type order - @order.CreatedAt.ToLocalTime().ToString("t")</MudText>
+            <MudChip T="string" Size="Size.Small">@order.Status</MudChip>
+        </div>
+        @foreach (var item in order.Items.Where(i => i.Status != "Cancelled"))
+        {
+            <div class="d-flex align-center justify-space-between my-1">
+                <div>
+                    <MudText>@item.Quantity x @item.ProductName @(item.VariationName is not null ? $"({item.VariationName})" : "")</MudText>
+                    @if (!string.IsNullOrWhiteSpace(item.Notes))
+                    {
+                        <MudText Typo="Typo.caption">Note: @item.Notes</MudText>
+                    }
+                </div>
+                <div>
+                    <MudChip T="string" Size="Size.Small" Class="mr-2">@item.Status</MudChip>
+                    @if (item.Status == "Pending")
+                    {
+                        <MudButton Size="Size.Small" OnClick="@(() => UpdateItemStatusAsync(order.Id, item.Id, "Preparing"))">Start</MudButton>
+                    }
+                    else if (item.Status == "Preparing")
+                    {
+                        <MudButton Size="Size.Small" Color="Color.Success" OnClick="@(() => UpdateItemStatusAsync(order.Id, item.Id, "Ready"))">Ready</MudButton>
+                    }
+                </div>
+            </div>
+        }
+    </MudPaper>
+}
+
+@if (_orders.Count == 0)
+{
+    <MudText>No pending items.</MudText>
+}
+
+@code {
+    private List<OrderResponse> _orders = [];
+    private HubConnection? _hub;
+    private bool _connected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+
+        var session = await SessionStore.GetAsync();
+        _hub = new HubConnectionBuilder()
+            .WithUrl(new Uri(Http.BaseAddress!, "hubs/orders"), options => options.AccessTokenProvider = () => Task.FromResult(session?.AccessToken))
+            .WithAutomaticReconnect()
+            .Build();
+
+        _hub.On<object>("OrderCreated", async _ => await ReloadAsync());
+        _hub.On<object>("OrderItemStatusChanged", async _ => await ReloadAsync());
+        _hub.On<object>("OrderStatusChanged", async _ => await ReloadAsync());
+
+        await _hub.StartAsync();
+        _connected = true;
+        StateHasChanged();
+    }
+
+    private async Task ReloadAsync()
+    {
+        await LoadAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadAsync()
+    {
+        _orders = await Http.GetFromJsonAsync<List<OrderResponse>>("api/kitchen/queue") ?? [];
+    }
+
+    private async Task UpdateItemStatusAsync(Guid orderId, Guid itemId, string status)
+    {
+        await Http.PutAsJsonAsync($"api/orders/{orderId}/items/{itemId}/status", new UpdateOrderItemStatusRequest(status));
+        await LoadAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+        {
+            await _hub.DisposeAsync();
+        }
+    }
+}

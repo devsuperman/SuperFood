@@ -1,0 +1,47 @@
+@page "/order/confirmation/{OrderId:guid}"
+@layout PublicLayout
+@implements IDisposable
+@inject HttpClient Http
+@using SuperFood.Contracts.Orders
+
+<MudText Typo="Typo.h4" GutterBottom="true">Thank you!</MudText>
+<MudText Class="mb-4">Your order has been received.</MudText>
+
+@if (_order is not null)
+{
+    <MudPaper Class="pa-4" Outlined="true">
+        <MudText Typo="Typo.h6">Status: @_order.Status</MudText>
+        <ul>
+            @foreach (var item in _order.Items)
+            {
+                <li>@item.Quantity x @item.ProductName @(item.VariationName is not null ? $"({item.VariationName})" : "")</li>
+            }
+        </ul>
+        <MudText Typo="Typo.h6">Total: @_order.Total.ToString("C")</MudText>
+    </MudPaper>
+}
+
+@code {
+    [Parameter] public Guid OrderId { get; set; }
+    [SupplyParameterFromQuery(Name = "session")] public string? Session { get; set; }
+
+    private OrderResponse? _order;
+    private Timer? _pollTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!string.IsNullOrEmpty(Session))
+        {
+            await RefreshAsync();
+            _pollTimer = new Timer(async _ => await InvokeAsync(RefreshAsync), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        _order = await Http.GetFromJsonAsync<OrderResponse>($"api/public/orders/{OrderId}/status?customerSessionId={Session}");
+        StateHasChanged();
+    }
+
+    public void Dispose() => _pollTimer?.Dispose();
+}

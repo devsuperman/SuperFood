@@ -1,0 +1,92 @@
+@page "/admin/restaurant-profile"
+@attribute [Authorize(Policy = "restaurant:manage")]
+@inject HttpClient Http
+@inject ISnackbar Snackbar
+@inject AuthenticationStateProvider AuthState
+@using System.Security.Claims
+@using SuperFood.Contracts.Restaurants
+
+<MudText Typo="Typo.h4" GutterBottom="true">My Restaurant</MudText>
+
+@if (_loading)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else
+{
+    <MudPaper Class="pa-4 mb-4" Outlined="true">
+        <MudText Typo="Typo.h6" GutterBottom="true">Profile</MudText>
+        <MudGrid>
+            <MudItem xs="12" md="6"><MudTextField T="string" Label="Name" @bind-Value="_profile.Name" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField T="string?" Label="Logo URL" @bind-Value="_profile.LogoUrl" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField T="string?" Label="Address" @bind-Value="_profile.Address" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField T="string?" Label="Contact phone" @bind-Value="_profile.ContactPhone" /></MudItem>
+            <MudItem xs="12" md="6"><MudTextField T="string?" Label="Contact email" @bind-Value="_profile.ContactEmail" /></MudItem>
+        </MudGrid>
+        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveProfileAsync">Save profile</MudButton>
+    </MudPaper>
+
+    <MudPaper Class="pa-4" Outlined="true">
+        <MudText Typo="Typo.h6" GutterBottom="true">Order types</MudText>
+        <MudSwitch T="bool" @bind-Value="_dineInEnabled" Label="Dine-in ordering enabled" Color="Color.Primary" />
+        <MudSwitch T="bool" @bind-Value="_deliveryEnabled" Label="Delivery ordering enabled" Color="Color.Primary" />
+        <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveOrderTypesAsync">Save</MudButton>
+    </MudPaper>
+}
+
+@code {
+    private bool _loading = true;
+    private RestaurantDetailsResponse? _details;
+    private ProfileFormModel _profile = new();
+    private bool _dineInEnabled;
+    private bool _deliveryEnabled;
+    private Guid _restaurantId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState.GetAuthenticationStateAsync();
+        _restaurantId = Guid.Parse(state.User.FindFirst("restaurant_id")!.Value);
+
+        _details = await Http.GetFromJsonAsync<RestaurantDetailsResponse>($"api/restaurants/{_restaurantId}");
+        if (_details is not null)
+        {
+            _profile = new ProfileFormModel
+            {
+                Name = _details.Name,
+                LogoUrl = _details.LogoUrl,
+                Address = _details.Address,
+                ContactPhone = _details.ContactPhone,
+                ContactEmail = _details.ContactEmail
+            };
+            _dineInEnabled = _details.DineInEnabled;
+            _deliveryEnabled = _details.DeliveryEnabled;
+        }
+
+        _loading = false;
+    }
+
+    private async Task SaveProfileAsync()
+    {
+        var request = new UpdateRestaurantProfileRequest(_profile.Name, _profile.LogoUrl, _profile.Address, _profile.ContactPhone, _profile.ContactEmail);
+        var response = await Http.PutAsJsonAsync("api/restaurants/me/profile", request);
+        Snackbar.Add(response.IsSuccessStatusCode ? "Profile saved." : "Could not save profile.",
+            response.IsSuccessStatusCode ? Severity.Success : Severity.Error);
+    }
+
+    private async Task SaveOrderTypesAsync()
+    {
+        var request = new UpdateOrderTypesRequest(_dineInEnabled, _deliveryEnabled);
+        var response = await Http.PutAsJsonAsync("api/restaurants/me/order-types", request);
+        Snackbar.Add(response.IsSuccessStatusCode ? "Saved." : "Could not save.",
+            response.IsSuccessStatusCode ? Severity.Success : Severity.Error);
+    }
+
+    private class ProfileFormModel
+    {
+        public string Name { get; set; } = "";
+        public string? LogoUrl { get; set; }
+        public string? Address { get; set; }
+        public string? ContactPhone { get; set; }
+        public string? ContactEmail { get; set; }
+    }
+}

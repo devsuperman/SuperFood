@@ -1,0 +1,118 @@
+@page "/admin/orders/delivery"
+@attribute [Authorize(Policy = "orders:manage")]
+@implements IAsyncDisposable
+@inject HttpClient Http
+@inject AuthSessionStore SessionStore
+@using Microsoft.AspNetCore.SignalR.Client
+@using SuperFood.Contracts.Orders
+
+<MudText Typo="Typo.h4" GutterBottom="true">Delivery Orders</MudText>
+
+@foreach (var order in _orders)
+{
+    <MudPaper Class="pa-4 mb-3" Outlined="true">
+        <div class="d-flex justify-space-between">
+            <MudText Typo="Typo.h6">@order.DeliveryDetails?.CustomerName - @order.Total.ToString("C")</MudText>
+            <MudChip T="string" Size="Size.Small">@order.Status</MudChip>
+        </div>
+        <MudText Typo="Typo.body2">@order.DeliveryDetails?.Address · @order.DeliveryDetails?.ContactPhone</MudText>
+        <MudText Typo="Typo.caption">Payment: @order.PaymentStatus @(order.PaymentMethod is not null ? $"({order.PaymentMethod})" : "")</MudText>
+
+        <ul>
+            @foreach (var item in order.Items)
+            {
+                <li>@item.Quantity x @item.ProductName @(item.VariationName is not null ? $"({item.VariationName})" : "")</li>
+            }
+        </ul>
+
+        <div class="d-flex ga-2 flex-wrap">
+            @if (order.Status == "Received")
+            {
+                <MudButton Size="Size.Small" Color="Color.Success" OnClick="@(() => AcceptAsync(order.Id))">Accept</MudButton>
+                <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => RejectAsync(order.Id))">Reject</MudButton>
+            }
+            @if (order.Status is "Accepted" or "Preparing" or "Ready" or "OutForDelivery")
+            {
+                <MudSelect T="string" Value="order.Status" ValueChanged="@(s => UpdateStatusAsync(order.Id, s))" Label="Status" Dense="true" Style="min-width:180px">
+                    <MudSelectItem Value="@("Preparing")">Preparing</MudSelectItem>
+                    <MudSelectItem Value="@("Ready")">Ready</MudSelectItem>
+                    <MudSelectItem Value="@("OutForDelivery")">Out for delivery</MudSelectItem>
+                    <MudSelectItem Value="@("Completed")">Completed</MudSelectItem>
+                </MudSelect>
+            }
+            @if (order.PaymentStatus == "Unpaid")
+            {
+                <MudButton Size="Size.Small" OnClick="@(() => MarkPaidAsync(order.Id, "Cash"))">Mark paid (cash)</MudButton>
+            }
+        </div>
+    </MudPaper>
+}
+
+@if (_orders.Count == 0)
+{
+    <MudText>No active delivery orders.</MudText>
+}
+
+@code {
+    private List<OrderResponse> _orders = [];
+    private HubConnection? _hub;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+
+        var session = await SessionStore.GetAsync();
+        _hub = new HubConnectionBuilder()
+            .WithUrl(new Uri(Http.BaseAddress!, "hubs/orders"), options => options.AccessTokenProvider = () => Task.FromResult(session?.AccessToken))
+            .WithAutomaticReconnect()
+            .Build();
+
+        _hub.On<object>("OrderCreated", async _ => await ReloadAsync());
+        _hub.On<object>("OrderStatusChanged", async _ => await ReloadAsync());
+
+        await _hub.StartAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        await LoadAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task LoadAsync()
+    {
+        _orders = await Http.GetFromJsonAsync<List<OrderResponse>>("api/orders/delivery/queue") ?? [];
+    }
+
+    private async Task AcceptAsync(Guid orderId)
+    {
+        await Http.PostAsync($"api/orders/delivery/{orderId}/accept", null);
+        await LoadAsync();
+    }
+
+    private async Task RejectAsync(Guid orderId)
+    {
+        await Http.PostAsJsonAsync($"api/orders/delivery/{orderId}/reject", new CancelOrderRequest("Rejected by staff"));
+        await LoadAsync();
+    }
+
+    private async Task UpdateStatusAsync(Guid orderId, string status)
+    {
+        await Http.PutAsJsonAsync($"api/orders/delivery/{orderId}/status", new UpdateOrderStatusRequest(status));
+        await LoadAsync();
+    }
+
+    private async Task MarkPaidAsync(Guid orderId, string method)
+    {
+        await Http.PostAsJsonAsync($"api/orders/delivery/{orderId}/payment", new MarkOrderPaidRequest(method));
+        await LoadAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+        {
+            await _hub.DisposeAsync();
+        }
+    }
+}
