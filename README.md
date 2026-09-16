@@ -5,6 +5,14 @@ A multi-tenant restaurant management SaaS. See:
 - [`docs/user-stories.md`](docs/user-stories.md) — product scope: roles, domain entities, epics and user stories.
 - [`docs/tech-stack.md`](docs/tech-stack.md) — architecture: .NET 10 Minimal API (Vertical Slice Architecture) + PostgreSQL backend, Blazor WebAssembly + MudBlazor frontend.
 
+## About this project
+
+This is a learning/test project for a specific stack, not a production
+product (yet): a **.NET Minimal API backend using Vertical Slice
+Architecture**, a **Blazor WebAssembly frontend with MudBlazor**, and
+**PostgreSQL** as the database. The plan is to eventually publish it as
+containers on **Azure**.
+
 ## Running locally
 
 ### Option A — Docker Compose (everything, one command)
