@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using FluentValidation;
 using MediatR;
 using Microsoft.AspNetCore.Identity;
@@ -56,7 +55,7 @@ public class CreateRestaurantHandler(SuperFoodDbContext db, UserManager<Applicat
 
         // No email service in this iteration (docs/user-stories.md §4): return
         // a temporary password the platform_admin relays to the owner.
-        var temporaryPassword = $"{Convert.ToBase64String(RandomNumberGenerator.GetBytes(9))}!1Aa";
+        var temporaryPassword = "food555";
 
         var owner = new ApplicationUser
         {

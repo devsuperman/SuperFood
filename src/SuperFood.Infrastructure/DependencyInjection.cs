@@ -20,7 +20,11 @@ public static class DependencyInjection
 
         services.AddIdentityCore<ApplicationUser>(options =>
             {
-                options.Password.RequiredLength = 8;
+                // ponytail: relaxed so the "food555" default restaurant-owner password is accepted;
+                // tighten (and switch owners to a random temp password) if this ever faces the internet.
+                options.Password.RequiredLength = 6;
+                options.Password.RequireUppercase = false;
+                options.Password.RequireNonAlphanumeric = false;
                 options.User.RequireUniqueEmail = true;
             })
             .AddEntityFrameworkStores<SuperFoodDbContext>()

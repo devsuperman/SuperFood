@@ -16,7 +16,7 @@ namespace SuperFood.IntegrationTests;
 public class SuperFoodApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgres = new PostgreSqlBuilder()
-        .WithImage("postgres:16")
+        .WithImage("postgres:18")
         .WithDatabase("superfood_test")
         .WithUsername("postgres")
         .WithPassword("postgres")

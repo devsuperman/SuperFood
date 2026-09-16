@@ -30,7 +30,7 @@ to `.env` before starting — see that file for the variables.
 
 ### Option B — .NET SDK directly (faster edit/run loop while developing)
 
-Prerequisites: .NET 10 SDK, a PostgreSQL 16 instance (`docker compose up -d postgres` starts just that one).
+Prerequisites: .NET 10 SDK, a PostgreSQL 18 instance (`docker compose up -d postgres` starts just that one).
 
 ```bash
 # 1. Start Postgres
@@ -51,6 +51,15 @@ dotnet run --project src/SuperFood.Client
 ```
 
 Sign in at the client's `/login` with the seeded platform admin to create your first restaurant.
+
+### API documentation
+
+While the API runs in Development, interactive docs (Scalar) are at
+`/scalar/v1` and the raw OpenAPI spec at `/openapi/v1.json` — so
+<http://localhost:5067/scalar/v1> with `dotnet run`, or
+<http://localhost:5080/scalar/v1> under Docker Compose. Use **Authorize** in
+Scalar with a token from `POST /api/auth/login` to try secured endpoints.
+Both routes are Development-only.
 
 ## Tests
 
